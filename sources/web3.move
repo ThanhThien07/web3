@@ -8,26 +8,34 @@ module web3::web3 {
     use sui::tx_context::{Self, TxContext};
     use sui::event;
 
-    /// The library store that holds the funds and config.
+    // --- Errors ---
+    const ENotAdmin: u64 = 0;
+    const EInsufficientBalance: u64 = 1;
+
+    /// The library store that holds the funds and configuration.
+    /// This is a shared object.
     public struct Library has key {
         id: UID,
         sui_balance: Balance<SUI>,
         admin: address,
     }
 
-    /// The Access Ticket object that is given to the user.
+    /// The Access Ticket object representing ownership or access right to a book.
+    /// This is given to the user after a successful purchase.
     public struct AccessTicket has key, store {
         id: UID,
         book_id: String,
     }
 
     /// Event emitted when a ticket is purchased.
+    /// Useful for off-chain indexing and verification.
     public struct TicketPurchased has copy, drop {
         ticket_id: ID,
         book_id: String,
         buyer: address,
     }
 
+    /// Initializes the library as a shared object.
     fun init(ctx: &mut TxContext) {
         transfer::share_object(Library {
             id: object::new(ctx),
@@ -37,6 +45,7 @@ module web3::web3 {
     }
 
     /// Buy an access ticket using SUI.
+    /// The paid SUI is added to the library's shared balance.
     public fun buy_ticket(
         library: &mut Library,
         payment: Coin<SUI>,
@@ -60,14 +69,26 @@ module web3::web3 {
         ticket
     }
 
-    /// Admin function to withdraw SUI.
+    /// Admin function to withdraw SUI from the library's balance.
     public fun withdraw_sui(
         library: &mut Library,
         amount: u64,
         ctx: &mut TxContext
     ) {
-        assert!(tx_context::sender(ctx) == library.admin, 0);
+        assert!(tx_context::sender(ctx) == library.admin, ENotAdmin);
+        assert!(balance::value(&library.sui_balance) >= amount, EInsufficientBalance);
+        
         let coin = coin::take(&mut library.sui_balance, amount, ctx);
         transfer::public_transfer(coin, library.admin);
+    }
+
+    /// Admin function to change the admin address.
+    public fun change_admin(
+        library: &mut Library,
+        new_admin: address,
+        ctx: &mut TxContext
+    ) {
+        assert!(tx_context::sender(ctx) == library.admin, ENotAdmin);
+        library.admin = new_admin;
     }
 }
